@@ -36,6 +36,10 @@ extern void outb(unsigned int addr, unsigned char val);
 #define RXCR	12
 #define TXCR	13
 
+#define PAGE1_PHYS   1
+#define PAGE1_CURPAG 7
+#define PAGE1_MULT   8
+
 /* Control register commands */
 #define CMD_STOP 1
 #define CMD_START 2
@@ -47,9 +51,15 @@ extern void outb(unsigned int addr, unsigned char val);
 #define CMD_PAGE1 64
 #define CMD_PAGE2 128
 
-#define PAGE1_PHYS   1
-#define PAGE1_CURPAG 7
-#define PAGE1_MULT   8
+/* Interrupt status code */
+#define INTR_RX		1
+#define INTR_TX		2
+#define INTR_RX_ERR	4
+#define	INTR_TX_ERR	8
+#define INTR_OVER	16
+#define	INTR_COUNTERS	32
+#define INTR_RDC	64
+#define INTR_RESET	128
 
 static char* hexchrs[] = {
 	"0","1","2","3","4","5","6","7","8",
@@ -117,6 +127,18 @@ ne2kinit() {
 		printf("ne2k: card MAC address is ");
 		print_macaddr(prom); 
 		
+		/* Set ring buffer page offsets */
+		devs[i].curpage = 71;
+		outb(iobase+STARTPG, 70);
+		outb(iobase+BNDRY, 70);
+		outb(iobase+ENDPG, 96);
+
+		/* Configure TX and RX parameters */
+		outb(iobase+RXCR, 0x6);
+		outb(iobase+TXCR, 4);
+
+		/* Configure interrupt mask */
+		outb(iobase+IMR, 0x1f);
 		/* Switch to page 1 and write MAC address */
 		outb(iobase, CMD_PAGE1 | CMD_STOP | CMD_NODMA);
 		for(j = 0; j < 6; j++) {
@@ -125,20 +147,40 @@ ne2kinit() {
 		for(j = 0; j < 6; j++) {
 			outb(iobase + PAGE1_MULT + j, 0xff);
 		}
+		
+		outb(iobase + PAGE1_CURPAG, devs[i].curpage);
+
 		/* Switch to page 0 and configure parameters */
 		outb(iobase, CMD_START | CMD_PAGE0 | CMD_NODMA);
 
-		/* Configure TX and RX parameters */
-		outb(iobase+RXCR, 0xe);
-		outb(iobase+TXCR, 4);
-		/* Set ring buffer size */
-		outb(iobase+STARTPG, 60);
-		outb(iobase+BNDRY, 60);
-		outb(iobase+ENDPG, 96);
-
-		/* Configure interrupt mask */
-		outb(iobase+IMR, 0x1f);
 	}
+}
+
+void handle_rx_pkt(struct ne2k_device *dev) {
+	unsigned int iobase, len;
+	unsigned char curpage, rsr, next;
+
+	iobase = dev->io_base;
+	/* Read current page from buffer ring */	
+	outb(iobase, CMD_PAGE1 | CMD_START | CMD_NODMA);
+	curpage = inb(iobase + PAGE1_CURPAG);
+	
+	/* Return to page 0 and read data from buffer ring */
+	outb(iobase, CMD_PAGE0 | CMD_START | CMD_NODMA);
+	outb(iobase + RSARHI, dev->curpage);
+	outb(iobase + RSARLO, 0);
+	outb(iobase + RCNTHI, 0);
+	outb(iobase + RCNTLO, 4);
+	outb(iobase, CMD_PAGE0 | CMD_START | CMD_NODMA | CMD_RREAD);
+	rsr = inb(iobase + 0x10);
+	next = inb(iobase + 0x10);
+	len = inb(iobase + 0x10) + (inb(iobase + 0x10) << 8);
+	
+	/* Signal interrupt completion */
+	outb(iobase + ISR, 0x40);
+
+	printf("ne2k: rsr = %x cur = %d next = %d len = %d, boundary = %d\n",
+		rsr, curpage, next, len-4, inb(iobase + BNDRY));
 }
 
 ne2kintr(irq)
@@ -158,5 +200,13 @@ int irq;
 
 	/* Read the interrupt status register */
 	c = inb(dev->io_base + ISR);
-	printf("ne2k: interrupted, status reg %x", c);	
+	switch(c & 0xf) {
+	case INTR_RX:
+		handle_rx_pkt(dev);
+		break;
+	case INTR_TX:
+		break;
+	default:
+		printf("ne2k: interrupted, status reg %x", c);	
+	}
 }

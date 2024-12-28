@@ -9,6 +9,7 @@ struct ne2k_device {
 	int io_base;
 	int io_high;
 	char is_valid;
+	unsigned char curpage;
 };
 
 #endif
