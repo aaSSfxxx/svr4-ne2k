@@ -64,6 +64,9 @@ int ne2kdevflag = D_NEW;
 #define INTR_RDC		64
 #define INTR_RESET		128
 
+#define RBUF_STARTPG	70
+#define RBUF_ENDPG		96
+
 static char* hexchrs[] = {
 	"0","1","2","3","4","5","6","7","8",
 	"9","a","b","c","d","e","f"
@@ -132,17 +135,17 @@ ne2kinit() {
 		print_macaddr(prom); 
 	
 		/* Set ring buffer page offsets */
-		devs[i].curpage = 71;
-		outb(iobase+STARTPG, 70);
-		outb(iobase+BNDRY, 70);
-		outb(iobase+ENDPG, 96);
+		devs[i].curpage = RBUF_STARTPG + 1;
+		outb(iobase+STARTPG, RBUF_STARTPG);
+		outb(iobase+BNDRY, RBUF_STARTPG);
+		outb(iobase+ENDPG, RBUF_ENDPG);
 
 		/* Configure TX and RX parameters */
 		outb(iobase+RXCR, 0x6);
 		outb(iobase+TXCR, 4);
 
 		/* Configure interrupt mask */
-		outb(iobase+IMR, 0xff);
+		outb(iobase+IMR, 0x1f);
 		/* Switch to page 1 and write MAC address */
 		outb(iobase, CMD_PAGE1 | CMD_STOP | CMD_NODMA);
 		for(j = 0; j < 6; j++) {
@@ -168,7 +171,6 @@ void handle_rx_pkt(struct ne2k_device *dev) {
 	/* Read current page from buffer ring */
 	outb(iobase, CMD_PAGE1 | CMD_START | CMD_NODMA);
 	curpage = inb(iobase + PAGE1_CURPAG);
-	printf("ne2k: new recv interrupt, curpage=%d\n", curpage);
 
 	while(dev->curpage != curpage) {
 		/* Return to page 0 and read data from buffer ring */
@@ -182,7 +184,7 @@ void handle_rx_pkt(struct ne2k_device *dev) {
 		next = inb(iobase + 0x10);
 		len = inb(iobase + 0x10) + (inb(iobase + 0x10) << 8);
 		printf("ne2k: rsr = %x cur = %d next = %d len = %d, "
-			"boundary = %d, thiscur = %d ",
+			"boundary = %d, thiscur = %d\n",
 			rsr, curpage, next, len-4, inb(iobase + BNDRY),
 			dev->curpage);
 		if(next == 0xff) {
@@ -195,22 +197,11 @@ void handle_rx_pkt(struct ne2k_device *dev) {
 		/* Read current page from buffer ring */
 		outb(iobase, CMD_PAGE1 | CMD_START | CMD_NODMA);
 		curpage = inb(iobase + PAGE1_CURPAG);
-		printf("newcur = %d\n", curpage);
-		boundary = ((unsigned int)(dev->curpage - 70) % 20) + 70;
-		if(boundary != dev->curpage) {
-			flag = (curpage == dev->curpage);
-			dev->curpage = boundary;
-			if(flag) {
-				curpage = boundary;
-				outb(iobase + PAGE1_CURPAG, curpage);
-			}
-		}
 	}
 	/* Compute new boundary and cur page */
 	boundary = dev->curpage;
+	outb(iobase, CMD_PAGE0 | CMD_START | CMD_NODMA);
 	outb(iobase + BNDRY, boundary);
-	printf("ne2k: Boundary %d curpage %d\n", inb(iobase + BNDRY),
-		 dev->curpage);
 }
 
 ne2kintr(irq)
