@@ -10,19 +10,19 @@ extern void outb(unsigned int addr, unsigned char val);
 int ne2kdevflag = D_NEW;
 
 #define COMMAND 0
-#define CLDA0 1
-#define CLDA1 2
-#define BNRY  3
-#define TSR   4
-#define NCR   5
+#define CLDA0 	1
+#define CLDA1 	2
+#define BNRY  	3
+#define TSR   	4
+#define NCR   	5
 
 /* Read I/O register addresses */
-#define ISR	7
+#define ISR		7
 #define CRDA0	8
 #define CRDA1	9
-#define RSR	12
-#define DCR	14
-#define IMR	15
+#define RSR		12
+#define DCR		14
+#define IMR		15
 #define RESET	0x1f
 
 /* Write I/O register addresses */
@@ -44,25 +44,25 @@ int ne2kdevflag = D_NEW;
 #define PAGE1_MULT   8
 
 /* Control register commands */
-#define CMD_STOP 1
-#define CMD_START 2
-#define CMD_TRANSMIT 4
-#define CMD_RREAD 8
-#define CMD_RWRITE 16
-#define CMD_NODMA 32
-#define CMD_PAGE0 0 
-#define CMD_PAGE1 64
-#define CMD_PAGE2 128
+#define CMD_STOP		1
+#define CMD_START 		2
+#define CMD_TRANSMIT		4
+#define CMD_RREAD		8
+#define CMD_RWRITE		16
+#define CMD_NODMA		32
+#define CMD_PAGE0		0 
+#define CMD_PAGE1		64
+#define CMD_PAGE2		128
 
 /* Interrupt status code */
-#define INTR_RX		1
-#define INTR_TX		2
-#define INTR_RX_ERR	4
-#define	INTR_TX_ERR	8
-#define INTR_OVER	16
+#define INTR_RX			1
+#define INTR_TX			2
+#define INTR_RX_ERR		4
+#define	INTR_TX_ERR		8
+#define INTR_OVER		16
 #define	INTR_COUNTERS	32
-#define INTR_RDC	64
-#define INTR_RESET	128
+#define INTR_RDC		64
+#define INTR_RESET		128
 
 static char* hexchrs[] = {
 	"0","1","2","3","4","5","6","7","8",
@@ -76,7 +76,7 @@ int irq;
 	for(i = 0; i < num_devs; i++) {
 		if(devs[i].irq == irq) {
 			return devs + i;
-		}	
+		}
 	}
 	return (void*)0;
 }
@@ -86,7 +86,8 @@ char s[];
 {
 	int i;
 	for(i = 0; i < 6; i++) {
-		printf("%s%s%s", hexchrs[s[2*i] >> 4 & 0xf], hexchrs[s[2*i] & 0xf], (i != 5) ? ":" : "");
+		printf("%s%s%s", hexchrs[s[2*i] >> 4 & 0xf], hexchrs[s[2*i] & 0xf],
+			 (i != 5) ? ":" : "");
 	}
 	printf("\n");
 }
@@ -100,8 +101,8 @@ ne2kinit() {
 		printf("ne2k: Device configured at irq %d io %x\n", 
 			devs[i].irq, devs[i].io_base);
 		iobase = devs[i].io_base;
-		
-		/* Perform a card reset */	
+	
+		/* Perform a card reset */
 		outb(iobase+RESET, inb(iobase+RESET));
 		while(inb(iobase+ISR) & 0x80 == 0);
 
@@ -114,9 +115,9 @@ ne2kinit() {
 		outb(iobase+RSARHI, 0);
 		outb(iobase+RSARLO, 0);
 		outb(iobase+RCNTHI, 0);
-		outb(iobase+RCNTLO, 32);	
-	
-		/* Start again the card and read the EEPROM data */	
+		outb(iobase+RCNTLO, 32);
+
+		/* Start again the card and read the EEPROM data */
 		outb(iobase, CMD_PAGE0 | CMD_START | CMD_RREAD | CMD_NODMA);
 		for(j = 0; j < 32; j++) {
 			prom[j] = inb(iobase+0x10);
@@ -124,12 +125,12 @@ ne2kinit() {
 		if(prom[28] != 0x57 || prom[30] != 0x57) {
 			cmn_err(CE_WARN, "ne2k: Invalid NE2000 I/O address");
 			devs[i].is_valid = 0;
-			continue;	
+			continue;
 		}
 		devs[i].is_valid = 1;
 		printf("ne2k: card MAC address is ");
 		print_macaddr(prom); 
-		
+	
 		/* Set ring buffer page offsets */
 		devs[i].curpage = 71;
 		outb(iobase+STARTPG, 70);
@@ -150,7 +151,7 @@ ne2kinit() {
 		for(j = 0; j < 6; j++) {
 			outb(iobase + PAGE1_MULT + j, 0xff);
 		}
-		
+	
 		outb(iobase + PAGE1_CURPAG, devs[i].curpage);
 
 		/* Switch to page 0 and configure parameters */
@@ -160,21 +161,16 @@ ne2kinit() {
 }
 
 void handle_rx_pkt(struct ne2k_device *dev) {
-	unsigned int iobase, len, i, boundary;
+	unsigned int iobase, len, boundary;
 	unsigned char curpage, rsr, next, flag;
 
-	i = 0;
 	iobase = dev->io_base;
-	/* Read current page from buffer ring */	
+	/* Read current page from buffer ring */
 	outb(iobase, CMD_PAGE1 | CMD_START | CMD_NODMA);
 	curpage = inb(iobase + PAGE1_CURPAG);
 	printf("ne2k: new recv interrupt, curpage=%d\n", curpage);
 
-	while(dev->curpage != curpage && i < 10) {
-		i++;
-		if(i == 10) {
-			printf("ne2k: infinite loop detected ?\n");
-		}
+	while(dev->curpage != curpage) {
 		/* Return to page 0 and read data from buffer ring */
 		outb(iobase, CMD_PAGE0 | CMD_START | CMD_NODMA);
 		outb(iobase + RSARHI, dev->curpage);
@@ -193,9 +189,9 @@ void handle_rx_pkt(struct ne2k_device *dev) {
 			printf("ne2k: Invalid next ! Marking card invalid\n");
 			dev->is_valid = 0;
 			break;
-		}	
+		}
 		dev->curpage = next;
-		
+	
 		/* Read current page from buffer ring */
 		outb(iobase, CMD_PAGE1 | CMD_START | CMD_NODMA);
 		curpage = inb(iobase + PAGE1_CURPAG);
@@ -240,7 +236,7 @@ int irq;
 		handle_rx_pkt(dev);
 		break;
 	default:
-		printf("ne2k: interrupted, status reg %x\n", c);	
+		printf("ne2k: interrupted, status reg %x\n", c);
 	}
 
 }
