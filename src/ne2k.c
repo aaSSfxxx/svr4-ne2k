@@ -1,10 +1,13 @@
 #include <sys/cmn_err.h>
+#include <sys/stropts.h>
 #include "sys/ne2k.h"
 
 extern struct ne2k_device devs[];
 extern int num_devs;
 extern unsigned char inb(unsigned int addr);
 extern void outb(unsigned int addr, unsigned char val);
+
+int ne2kdevflag = D_NEW;
 
 #define COMMAND 0
 #define CLDA0 1
@@ -138,7 +141,7 @@ ne2kinit() {
 		outb(iobase+TXCR, 4);
 
 		/* Configure interrupt mask */
-		outb(iobase+IMR, 0x1f);
+		outb(iobase+IMR, 0xff);
 		/* Switch to page 1 and write MAC address */
 		outb(iobase, CMD_PAGE1 | CMD_STOP | CMD_NODMA);
 		for(j = 0; j < 6; j++) {
@@ -157,30 +160,53 @@ ne2kinit() {
 }
 
 void handle_rx_pkt(struct ne2k_device *dev) {
-	unsigned int iobase, len;
+	unsigned int iobase, len, i, boundary;
 	unsigned char curpage, rsr, next;
 
+	i = 0;
 	iobase = dev->io_base;
 	/* Read current page from buffer ring */	
 	outb(iobase, CMD_PAGE1 | CMD_START | CMD_NODMA);
 	curpage = inb(iobase + PAGE1_CURPAG);
-	
-	/* Return to page 0 and read data from buffer ring */
-	outb(iobase, CMD_PAGE0 | CMD_START | CMD_NODMA);
-	outb(iobase + RSARHI, dev->curpage);
-	outb(iobase + RSARLO, 0);
-	outb(iobase + RCNTHI, 0);
-	outb(iobase + RCNTLO, 4);
-	outb(iobase, CMD_PAGE0 | CMD_START | CMD_NODMA | CMD_RREAD);
-	rsr = inb(iobase + 0x10);
-	next = inb(iobase + 0x10);
-	len = inb(iobase + 0x10) + (inb(iobase + 0x10) << 8);
-	
-	/* Signal interrupt completion */
-	outb(iobase + ISR, 0x40);
+	printf("ne2k: new recv interrupt, curpage=%d\n", curpage);
 
-	printf("ne2k: rsr = %x cur = %d next = %d len = %d, boundary = %d\n",
-		rsr, curpage, next, len-4, inb(iobase + BNDRY));
+	while(dev->curpage != curpage && i < 10) {
+		i++;
+		if(i == 10) {
+			printf("ne2k: infinite loop detected ?\n");
+		}
+		/* Return to page 0 and read data from buffer ring */
+		outb(iobase, CMD_PAGE0 | CMD_START | CMD_NODMA);
+		outb(iobase + RSARHI, dev->curpage);
+		outb(iobase + RSARLO, 0);
+		outb(iobase + RCNTHI, 0);
+		outb(iobase + RCNTLO, 4);
+		outb(iobase, CMD_PAGE0 | CMD_START | CMD_NODMA | CMD_RREAD);
+		rsr = inb(iobase + 0x10);
+		next = inb(iobase + 0x10);
+		len = inb(iobase + 0x10) + (inb(iobase + 0x10) << 8);
+	
+		printf("ne2k: rsr = %x cur = %d next = %d len = %d, "
+			"boundary = %d, thiscur = %d ",
+			rsr, curpage, next, len-4, inb(iobase + BNDRY),
+			dev->curpage);
+		dev->curpage = next;
+		
+		/* Read current page from buffer ring */
+		outb(iobase, CMD_PAGE1 | CMD_START | CMD_NODMA);
+		curpage = inb(iobase + PAGE1_CURPAG);
+		boundary = ((unsigned int)(curpage - 70) % 20) + 70;
+		if(curpage != boundary) {
+			curpage = boundary;
+			outb(iobase + PAGE1_CURPAG, curpage);
+		}
+		printf("newcur = %d\n", curpage);
+	}
+	/* Signal interrupt completion */
+	boundary = ((unsigned int)(dev->curpage + 1 - 70) % 20) + 70;
+	outb(iobase + BNDRY, boundary);
+	printf("ne2k: Boundary %d curpage %d\n", inb(iobase + BNDRY),
+		 dev->curpage);
 }
 
 ne2kintr(irq)
@@ -200,13 +226,13 @@ int irq;
 
 	/* Read the interrupt status register */
 	c = inb(dev->io_base + ISR);
+	outb(dev->io_base + ISR, 0xff);
 	switch(c & 0xf) {
 	case INTR_RX:
 		handle_rx_pkt(dev);
 		break;
-	case INTR_TX:
-		break;
 	default:
-		printf("ne2k: interrupted, status reg %x", c);	
+		printf("ne2k: interrupted, status reg %x\n", c);	
 	}
+
 }
