@@ -161,7 +161,7 @@ ne2kinit() {
 
 void handle_rx_pkt(struct ne2k_device *dev) {
 	unsigned int iobase, len, i, boundary;
-	unsigned char curpage, rsr, next;
+	unsigned char curpage, rsr, next, flag;
 
 	i = 0;
 	iobase = dev->io_base;
@@ -185,25 +185,33 @@ void handle_rx_pkt(struct ne2k_device *dev) {
 		rsr = inb(iobase + 0x10);
 		next = inb(iobase + 0x10);
 		len = inb(iobase + 0x10) + (inb(iobase + 0x10) << 8);
-	
 		printf("ne2k: rsr = %x cur = %d next = %d len = %d, "
 			"boundary = %d, thiscur = %d ",
 			rsr, curpage, next, len-4, inb(iobase + BNDRY),
 			dev->curpage);
+		if(next == 0xff) {
+			printf("ne2k: Invalid next ! Marking card invalid\n");
+			dev->is_valid = 0;
+			break;
+		}	
 		dev->curpage = next;
 		
 		/* Read current page from buffer ring */
 		outb(iobase, CMD_PAGE1 | CMD_START | CMD_NODMA);
 		curpage = inb(iobase + PAGE1_CURPAG);
-		boundary = ((unsigned int)(curpage - 70) % 20) + 70;
-		if(curpage != boundary) {
-			curpage = boundary;
-			outb(iobase + PAGE1_CURPAG, curpage);
-		}
 		printf("newcur = %d\n", curpage);
+		boundary = ((unsigned int)(dev->curpage - 70) % 20) + 70;
+		if(boundary != dev->curpage) {
+			flag = (curpage == dev->curpage);
+			dev->curpage = boundary;
+			if(flag) {
+				curpage = boundary;
+				outb(iobase + PAGE1_CURPAG, curpage);
+			}
+		}
 	}
-	/* Signal interrupt completion */
-	boundary = ((unsigned int)(dev->curpage + 1 - 70) % 20) + 70;
+	/* Compute new boundary and cur page */
+	boundary = dev->curpage;
 	outb(iobase + BNDRY, boundary);
 	printf("ne2k: Boundary %d curpage %d\n", inb(iobase + BNDRY),
 		 dev->curpage);
