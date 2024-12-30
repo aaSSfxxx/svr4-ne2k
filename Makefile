@@ -1,5 +1,6 @@
 all: 
 	cd src; make
+	cd test; make
 	cp ID/* out/
 	cp src/Driver.o out
 	cp src/Space.c out
@@ -10,3 +11,6 @@ install:
 	cd out; /etc/conf/bin/idinstall -a ne2k
 	/etc/conf/bin/idbuild
 
+clean:
+	cd src; make clean
+	cd test; make clean
