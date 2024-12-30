@@ -9,7 +9,7 @@ int max_devices = NSTR;
 int num_devs = NE2K_CNTLS;
 
 struct ne2k_device devs[] = {
-	{NE2K_0_VECT, NE2K_0_SIOA, NE2K_0_EIOA}
+	{NE2K_0_VECT, NE2K_0_SIOA, NE2K_0_EIOA, NE2K_CMAJOR_0, NSTR}
 };
 
 

@@ -11,6 +11,7 @@ struct ne2k_device {
 	int devmajor;	
 	int n_minors;	
 	char is_valid;
+	int fhandle_idx;
 	unsigned char curpage;
 };
 

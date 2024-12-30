@@ -4,6 +4,7 @@
 #include <sys/stropts.h>
 #include <sys/stream.h>
 #include <sys/socket.h>
+#include <sys/errno.h>
 #include <net/if.h>
 #include <net/strioc.h>
 #include "sys/ne2k.h"
@@ -139,8 +140,8 @@ ne2kinit() {
 	unsigned char prom[32];
 
 	for(i = 0; i < num_devs; i++) {
-		DBGPRINT(("ne2k: Device configured at irq %d io %x\n", 
-			devs[i].irq, devs[i].io_base));
+		DBGPRINT(("ne2k: Device configured at irq %d io %x, major %d\n", 
+			devs[i].irq, devs[i].io_base, devs[i].devmajor));
 		iobase = devs[i].io_base;
 	
 		/* Perform a card reset */
@@ -169,6 +170,7 @@ ne2kinit() {
 			continue;
 		}
 		devs[i].is_valid = 1;
+		devs[i].fhandle_idx = i * devs[i].n_minors;
 		printf("ne2k: card MAC address is ");
 		print_macaddr(prom); 
 	
@@ -277,14 +279,75 @@ dev_t *dev;
 int flag, sflag;
 struct cred *credp;
 {
-	/* Not implemented right now */
-	return OPENFAIL;
+	major_t devmajor;
+	minor_t devminor;
+	int i, oldlevel;
+	struct ne2k_device *d_dev;
+
+	/* Get major number for opened device and check it belongs to our
+	   driver */
+	DBGPRINT(("queueopen(%x %x %x %x %x) called\n", q, dev, flag, sflag, credp));
+	devmajor = getemajor(*dev);
+	d_dev = NULL;
+	for(i = 0; i < num_devs; i++) {
+		if(devs[i].devmajor == devmajor) {
+			d_dev = devs + i;
+			break;
+		}	
+	}
+
+	if(d_dev == NULL) {
+		cmn_err(CE_WARN, "ne2k: trying to open major that doesn't exist");
+		return ECHRNG;
+	}
+
+	/* Disable interrupts to open the device */
+	oldlevel = splstr();
+
+	if(sflag & CLONEOPEN) {
+		for(devminor = 0; devminor < d_dev->n_minors; devminor++) {
+			if(handles[d_dev->fhandle_idx + devminor].queue == NULL) {
+				break;	
+			}
+		}
+	}
+	else {
+		devminor = geteminor(*dev);
+	}
+
+	/* If the queue is already opened, return the device */
+	if(q->q_ptr) {
+		DBGPRINT(("Queue already opened\n"));
+		*dev = makedevice(devmajor, devminor);
+		splx(oldlevel);
+		return 0;
+	}
+
+	/* Save current handle information into queue information */
+	q->q_ptr = &handles[d_dev->fhandle_idx + devminor];
+	WR(q)->q_ptr = q->q_ptr;
+
+	handles[d_dev->fhandle_idx + devminor].dev = d_dev;
+	handles[d_dev->fhandle_idx + devminor].queue = q;
+
+	splx(oldlevel);
+	*dev = makedevice(devmajor, devminor);
+	return 0;
 }
 
 /* Closes a handle */
 queueclose(q)
 queue_t *q;
 {
+	struct ne2k_handle *handle;
+	int i;
+
+	DBGPRINT(("ne2k: closing driver\n"));
+	handle = (struct ne2k_handle*)q->q_ptr;
+
+	for(i = 0; i < handle->dev->n_minors; i++) {
+		handles[handle->dev->fhandle_idx + i].queue = NULL;
+	}
 }
 
 queuersrv(q)
