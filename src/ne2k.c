@@ -9,6 +9,14 @@ extern void outb(unsigned int addr, unsigned char val);
 
 int ne2kdevflag = D_NEW;
 
+extern vprintf();
+
+#ifdef NE2KDEBUG
+#define DBGPRINT(x) printf x
+#else
+#define DBGPRINT(x)
+#endif
+
 #define COMMAND 0
 #define CLDA0 	1
 #define CLDA1 	2
@@ -101,8 +109,8 @@ ne2kinit() {
 	unsigned char prom[32];
 
 	for(i = 0; i < num_devs; i++) {
-		printf("ne2k: Device configured at irq %d io %x\n", 
-			devs[i].irq, devs[i].io_base);
+		DBGPRINT(("ne2k: Device configured at irq %d io %x\n", 
+			devs[i].irq, devs[i].io_base));
 		iobase = devs[i].io_base;
 	
 		/* Perform a card reset */
@@ -183,12 +191,12 @@ void handle_rx_pkt(struct ne2k_device *dev) {
 		rsr = inb(iobase + 0x10);
 		next = inb(iobase + 0x10);
 		len = inb(iobase + 0x10) + (inb(iobase + 0x10) << 8);
-		printf("ne2k: rsr = %x cur = %d next = %d len = %d, "
+		DBGPRINT(("ne2k: rsr = %x cur = %d next = %d len = %d, "
 			"boundary = %d, thiscur = %d\n",
 			rsr, curpage, next, len-4, inb(iobase + BNDRY),
-			dev->curpage);
+			dev->curpage));
 		if(next == 0xff) {
-			printf("ne2k: Invalid next ! Marking card invalid\n");
+			cmn_err(CE_WARN, "ne2k: Invalid next ! Marking card invalid\n");
 			dev->is_valid = 0;
 			break;
 		}
@@ -227,7 +235,6 @@ int irq;
 		handle_rx_pkt(dev);
 		break;
 	default:
-		printf("ne2k: interrupted, status reg %x\n", c);
+		DBGPRINT(("ne2k: interrupted, status reg %x\n", c));
 	}
-
 }
