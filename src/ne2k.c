@@ -1,15 +1,21 @@
+#include <sys/types.h>
+#include <sys/param.h>
 #include <sys/cmn_err.h>
 #include <sys/stropts.h>
+#include <sys/stream.h>
+#include <sys/socket.h>
+#include <net/if.h>
+#include <net/strioc.h>
 #include "sys/ne2k.h"
 
 extern struct ne2k_device devs[];
+extern struct ne2k_handle handles[];
 extern int num_devs;
+
 extern unsigned char inb(unsigned int addr);
 extern void outb(unsigned int addr, unsigned char val);
 
 int ne2kdevflag = D_NEW;
-
-extern vprintf();
 
 #ifdef NE2KDEBUG
 #define DBGPRINT(x) printf x
@@ -17,14 +23,13 @@ extern vprintf();
 #define DBGPRINT(x)
 #endif
 
+/* Read I/O register addresses */
 #define COMMAND 0
 #define CLDA0 	1
 #define CLDA1 	2
 #define BNRY  	3
 #define TSR   	4
 #define NCR   	5
-
-/* Read I/O register addresses */
 #define ISR		7
 #define CRDA0	8
 #define CRDA1	9
@@ -75,10 +80,35 @@ extern vprintf();
 #define RBUF_STARTPG	70
 #define RBUF_ENDPG		96
 
+#define PKTSZ	(3*256)
+#define HIWAT		(32*PKTSZ)
+#define LOWAT		(8*PKTSZ)
+#define MAXPKT	1500
+
 static char* hexchrs[] = {
 	"0","1","2","3","4","5","6","7","8",
 	"9","a","b","c","d","e","f"
 };
+
+
+/* STREAMS queue definition */
+static struct module_info minfo[DRVR_INFO_SZ] = {
+     ENETM_ID, "ne2k", 0, MAXPKT, HIWAT, LOWAT,
+     ENETM_ID, "ne2k", 0, MAXPKT, HIWAT, LOWAT,
+     ENETM_ID, "ne2k", 0, MAXPKT, HIWAT, LOWAT,
+  };
+
+int queueopen(), queueclose(), queuewput(), queuewsrv(), queuersrv();
+
+static struct qinit read_queue = {
+	NULL, queuersrv, queueopen, queueclose, NULL, &minfo[IQP_RQ], NULL,
+};
+
+static struct qinit write_queue = {
+	queuewput, queuewsrv, NULL, NULL, NULL, &minfo[IQP_WQ], NULL,
+};
+
+struct streamtab ne2kinfo = { &read_queue, &write_queue, NULL, NULL };
 
 static struct ne2k_device *find_device(irq)
 int irq;
@@ -237,4 +267,38 @@ int irq;
 	default:
 		DBGPRINT(("ne2k: interrupted, status reg %x\n", c));
 	}
+}
+
+/* Called by STREAMS to open a new device for the board */
+int
+queueopen(q, dev, flag, sflag, credp)
+queue_t *q;
+dev_t *dev;
+int flag, sflag;
+struct cred *credp;
+{
+	/* Not implemented right now */
+	return OPENFAIL;
+}
+
+/* Closes a handle */
+queueclose(q)
+queue_t *q;
+{
+}
+
+queuersrv(q)
+queue_t *q;
+{
+}
+
+queuewsrv(q)
+queue_t *q;
+{
+}
+
+queuewput(q, mp)
+queue_t *q;
+mblk_t *mp;
+{
 }
