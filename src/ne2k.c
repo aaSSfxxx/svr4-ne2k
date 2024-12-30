@@ -3,6 +3,7 @@
 #include <sys/cmn_err.h>
 #include <sys/stropts.h>
 #include <sys/stream.h>
+#include <sys/ddi.h>
 #include <sys/socket.h>
 #include <sys/errno.h>
 #include <net/if.h>
@@ -203,6 +204,41 @@ ne2kinit() {
 	}
 }
 
+void read_packet(struct ne2k_device *dev, int len) {
+	mblk_t *buf;
+	int iobase, i, count;
+	struct ne2k_handle *h;
+	DBGPRINT(("Get packet of %d bytes\n", len));
+	/* Try to allocate buffer */
+	buf = allocb(len, BPRI_LO);
+	if(!buf) {
+		cmn_err(CE_WARN, "ne2k: Not enough memory to allocate transmit buffer\n");
+		return;
+	}
+	iobase = dev->io_base;
+	outb(iobase, CMD_PAGE0 | CMD_START | CMD_NODMA);
+	outb(iobase + RSARHI, dev->curpage);
+	outb(iobase + RSARLO, 4);
+	outb(iobase + RCNTHI, len >> 8);
+	outb(iobase + RCNTLO, len & 0xff);
+	outb(iobase, CMD_PAGE0 | CMD_START | CMD_NODMA | CMD_RREAD);
+	for(i = 0; i < len; i++) {
+		*buf->b_wptr++ = inb(iobase + 0x10);
+	}
+	count = 0;
+	for(i = 0; i < dev->n_minors; i++) {
+		h = &handles[dev->fhandle_idx + i];
+		if(h->queue == NULL) continue;
+		DBGPRINT(("ne2k: Found queue at index %d\n", i));
+		putnext(h->queue, buf);
+		count++;
+		break;	
+	}
+	if(!count) {
+		freemsg(buf);
+	}
+}
+
 void handle_rx_pkt(struct ne2k_device *dev) {
 	unsigned int iobase, len, boundary;
 	unsigned char curpage, rsr, next, flag;
@@ -232,6 +268,7 @@ void handle_rx_pkt(struct ne2k_device *dev) {
 			dev->is_valid = 0;
 			break;
 		}
+		read_packet(dev, len - 4);
 		dev->curpage = next;
 	
 		/* Read current page from buffer ring */
@@ -344,10 +381,8 @@ queue_t *q;
 
 	DBGPRINT(("ne2k: closing driver\n"));
 	handle = (struct ne2k_handle*)q->q_ptr;
-
-	for(i = 0; i < handle->dev->n_minors; i++) {
-		handles[handle->dev->fhandle_idx + i].queue = NULL;
-	}
+	handle->queue = NULL;
+	q->q_ptr = NULL;
 }
 
 queuersrv(q)
@@ -364,4 +399,5 @@ queuewput(q, mp)
 queue_t *q;
 mblk_t *mp;
 {
+	DBGPRINT(("Queuewput called\n"));
 }
