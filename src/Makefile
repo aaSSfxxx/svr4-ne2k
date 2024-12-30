@@ -10,4 +10,4 @@ ne2k.o: ne2k.c
 	cc $(BUILDCFLAGS) ne2k.c
 
 clean:
-	rm *.o
+	rm -f *.o
