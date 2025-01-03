@@ -5,6 +5,7 @@
 #include <sys/stream.h>
 #include <sys/ddi.h>
 #include <sys/socket.h>
+#include <sys/dlpi.h>
 #include <sys/errno.h>
 #include <net/if.h>
 #include <net/strioc.h>
@@ -16,6 +17,7 @@ extern int num_devs;
 
 extern unsigned char inb(unsigned int addr);
 extern void outb(unsigned int addr, unsigned char val);
+extern void bcopy(void*, void*, int);
 
 int ne2kdevflag = D_NEW;
 
@@ -205,14 +207,14 @@ ne2kinit() {
 }
 
 void read_packet(struct ne2k_device *dev, int len) {
-	mblk_t *buf;
+	mblk_t *mb;
 	int iobase, i, count;
 	struct ne2k_handle *h;
+	char buf[2048];
+
 	DBGPRINT(("Get packet of %d bytes\n", len));
-	/* Try to allocate buffer */
-	buf = allocb(len, BPRI_LO);
-	if(!buf) {
-		cmn_err(CE_WARN, "ne2k: Not enough memory to allocate transmit buffer\n");
+	if(len > 2048) {
+		cmn_err(CE_WARN, "Packet too big (%d bytes) received !", len);
 		return;
 	}
 	iobase = dev->io_base;
@@ -223,19 +225,24 @@ void read_packet(struct ne2k_device *dev, int len) {
 	outb(iobase + RCNTLO, len & 0xff);
 	outb(iobase, CMD_PAGE0 | CMD_START | CMD_NODMA | CMD_RREAD);
 	for(i = 0; i < len; i++) {
-		*buf->b_wptr++ = inb(iobase + 0x10);
+		buf[i] = inb(iobase + 0x10);
 	}
 	count = 0;
 	for(i = 0; i < dev->n_minors; i++) {
 		h = &handles[dev->fhandle_idx + i];
 		if(h->queue == NULL) continue;
 		DBGPRINT(("ne2k: Found queue at index %d\n", i));
-		putnext(h->queue, buf);
+		
+		mb = allocb(len, BPRI_MED);
+		if(mb == NULL) {
+			cmn_err(CE_WARN, "ne2k: Not enough memory to allocate transmit buffer");
+			return;
+		}
+		bcopy(buf, mb->b_wptr, len);
+		mb->b_wptr += len;
+		/* Enque the message to be processed by the service queue */	
+		putq(h->queue, mb);
 		count++;
-		break;	
-	}
-	if(!count) {
-		freemsg(buf);
 	}
 }
 
@@ -388,16 +395,50 @@ queue_t *q;
 queuersrv(q)
 queue_t *q;
 {
+	mblk_t *blk, *ctl_blk;
+	register union DL_primitives *dlp;
+
+	DBGPRINT(("Read service queue called\n"));
+
+	/* Process enqued messages we got from the network card from the interrupt
+	 * We need to add a LLC control message in order for the packet to be
+     * processed by the upper IP layer */
+	while((blk = getq(q)) != NULL)
+		if(canput(q->q_next)) {
+		ctl_blk = allocb(DL_UNITDATA_IND_SIZE + 2*6, BPRI_MED);
+		if(!ctl_blk) {
+			cmn_err(CE_WARN, "Couldn't allocate buffer for control packet");
+			continue;
+		}
+		ctl_blk->b_datap->db_type = M_PROTO;
+		dlp = (union DL_primitives*)ctl_blk->b_rptr;
+		
+		/*  Create a DL_UNITDATA_IND message, with control part containing the
+	     *  source and destination MAC addresses. IP stack does not seem to
+		 *  make use of it in SVR4 sources but control message seems to be
+		 *  required anyways 
+		 */	
+		dlp->unitdata_ind.dl_primitive = DL_UNITDATA_IND;
+		dlp->unitdata_ind.dl_dest_addr_length = 6;
+		dlp->unitdata_ind.dl_src_addr_length = 6;
+		dlp->unitdata_ind.dl_dest_addr_offset = DL_UNITDATA_IND_SIZE;
+		dlp->unitdata_ind.dl_src_addr_offset = DL_UNITDATA_IND_SIZE + 6;
+		bcopy(blk->b_rptr, ctl_blk->b_rptr + DL_UNITDATA_IND_SIZE, 6);
+		bcopy(blk->b_rptr + 6, ctl_blk->b_rptr + DL_UNITDATA_IND_SIZE + 6, 6);
+		linkb(ctl_blk, blk);	
+		putnext(q, ctl_blk);	
+	}
 }
 
 queuewsrv(q)
 queue_t *q;
 {
+	printf("Write service queue called\n");
 }
 
 queuewput(q, mp)
 queue_t *q;
 mblk_t *mp;
 {
-	DBGPRINT(("Queuewput called\n"));
+	printf("Queuewput called\n");
 }
