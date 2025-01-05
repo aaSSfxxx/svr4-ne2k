@@ -14,3 +14,6 @@ install:
 clean:
 	cd src; make clean
 	cd test; make clean
+
+srcfloppy: clean
+	(find * -print | cpio -o; dd if=/dev/zero bs=4096 of=/dev/stdout) | dd if=/dev/stdin bs=1024 count=1200 of=out/sources.img
