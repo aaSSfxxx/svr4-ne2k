@@ -402,7 +402,7 @@ queue_t *q;
 
 	/* Process enqued messages we got from the network card from the interrupt
 	 * We need to add a LLC control message in order for the packet to be
-     * processed by the upper IP layer */
+	 * processed by the upper IP layer */
 	while((blk = getq(q)) != NULL)
 		if(canput(q->q_next)) {
 		ctl_blk = allocb(DL_UNITDATA_IND_SIZE + 2*6, BPRI_MED);
@@ -414,7 +414,7 @@ queue_t *q;
 		dlp = (union DL_primitives*)ctl_blk->b_rptr;
 		
 		/*  Create a DL_UNITDATA_IND message, with control part containing the
-	     *  source and destination MAC addresses. IP stack does not seem to
+		 *  source and destination MAC addresses. IP stack does not seem to
 		 *  make use of it in SVR4 sources but control message seems to be
 		 *  required anyways 
 		 */	
