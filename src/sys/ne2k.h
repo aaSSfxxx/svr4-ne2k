@@ -13,6 +13,7 @@ struct ne2k_device {
 	char is_valid;
 	int fhandle_idx;
 	unsigned char curpage;
+	unsigned char mac_addr[6];
 };
 
 

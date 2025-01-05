@@ -193,6 +193,7 @@ ne2kinit() {
 		outb(iobase, CMD_PAGE1 | CMD_STOP | CMD_NODMA);
 		for(j = 0; j < 6; j++) {
 			outb(iobase + PAGE1_PHYS + j, prom[2*j]);
+			devs[i].mac_addr[j] = prom[2*j];
 		}
 		for(j = 0; j < 6; j++) {
 			outb(iobase + PAGE1_MULT + j, 0xff);
