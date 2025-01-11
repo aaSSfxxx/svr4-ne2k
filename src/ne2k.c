@@ -434,12 +434,47 @@ queue_t *q;
 queuewsrv(q)
 queue_t *q;
 {
-	printf("Write service queue called\n");
+	register struct ne2k_device *dev;
+	mblk_t *blk;
+	while((blk = getq(q)) != NULL) {
+		switch(blk->b_datap->db_type) {
+			case M_PROTO:
+			case M_PCPROTO:
+				printf("ne2k: M_PROTO or PC_PROTO received\n");
+				break;
+			case M_IOCTL:
+				printf("ne2k: M_IOCTL received\n");
+				break;
+		}
+	}
 }
 
 queuewput(q, mp)
 queue_t *q;
 mblk_t *mp;
 {
-	printf("Queuewput called\n");
+	switch(mp->b_datap->db_type) {
+		case M_IOCTL:
+		case M_PROTO:
+		case M_PCPROTO:
+			/* Enqueue IOCTL and PROTO messages to be processed by write 
+			 * service queue */
+			putq(q, mp);
+			break;
+		case M_FLUSH:
+			if(*mp->b_rptr & FLUSHW) {
+				flushq(q, FLUSHDATA);
+				*mp->b_rptr &= ~FLUSHW;
+			}
+			if(*mp->b_rptr & FLUSHR) {
+				flushq(RD(q), FLUSHDATA);
+				qreply(q, mp);
+			}
+			else {
+				freemsg(mp);
+			}
+			break;
+		default:
+			printf("ne2k: Unknown message %d", mp->b_datap->db_type);
+	}
 }
