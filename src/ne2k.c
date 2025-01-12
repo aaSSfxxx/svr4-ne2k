@@ -114,8 +114,7 @@ static struct qinit write_queue = {
 
 struct streamtab ne2kinfo = { &read_queue, &write_queue, NULL, NULL };
 
-static struct ne2k_device *find_device(irq)
-int irq;
+static struct ne2k_device *find_device(int irq)
 {
 	int i;
 	for(i = 0; i < num_devs; i++) {
@@ -126,8 +125,7 @@ int irq;
 	return (void*)0;
 }
 
-static print_macaddr(s)
-char s[];
+static void print_macaddr(unsigned char s[])
 {
 	int i;
 	for(i = 0; i < 6; i++) {
@@ -137,7 +135,7 @@ char s[];
 	printf("\n");
 }
 
-ne2kinit() {
+void ne2kinit() {
 	int i, j;
 	int iobase;
 	unsigned char prom[32];
@@ -149,7 +147,7 @@ ne2kinit() {
 	
 		/* Perform a card reset */
 		outb(iobase+RESET, inb(iobase+RESET));
-		while(inb(iobase+ISR) & 0x80 == 0);
+		while((inb(iobase+ISR) & 0x80) == 0);
 
 		/* Mask interrupts */
 		outb(iobase+ISR, 0xff);
@@ -289,8 +287,7 @@ void handle_rx_pkt(struct ne2k_device *dev) {
 	outb(iobase + BNDRY, boundary);
 }
 
-ne2kintr(irq)
-int irq;
+void ne2kintr(int irq)
 {
 	struct ne2k_device *dev;
 	unsigned char c;
@@ -381,8 +378,7 @@ struct cred *credp;
 }
 
 /* Closes a handle */
-queueclose(q)
-queue_t *q;
+int queueclose(queue_t *q)
 {
 	struct ne2k_handle *handle;
 	int i;
@@ -391,10 +387,10 @@ queue_t *q;
 	handle = (struct ne2k_handle*)q->q_ptr;
 	handle->queue = NULL;
 	q->q_ptr = NULL;
+	return 0;
 }
 
-queuersrv(q)
-queue_t *q;
+int queuersrv(queue_t *q)
 {
 	mblk_t *blk, *ctl_blk;
 	register union DL_primitives *dlp;
@@ -431,16 +427,37 @@ queue_t *q;
 	}
 }
 
-queuewsrv(q)
-queue_t *q;
+int process_proto(queue_t *q, mblk_t *blk)
+{
+	union DL_primitives *dlp;
+
+	dlp = (union DL_primitives*)blk->b_rptr;
+	switch(dlp->dl_primitive) {
+		case DL_BIND_REQ:
+			printf("DL_BIND_REQ asked\n");
+			break;
+		case DL_UNITDATA_REQ:
+			printf("DL_UNITDATA_REQ asked\n");
+			break;
+		case DL_INFO_REQ:
+			printf("DL_INFO_REQ asked\n");
+			break;
+		default:
+			printf("Unknown code %d asked\n", dlp->dl_primitive);
+	}
+}
+
+int queuewsrv(queue_t *q)
 {
 	register struct ne2k_device *dev;
 	mblk_t *blk;
+	int ret;
+
 	while((blk = getq(q)) != NULL) {
 		switch(blk->b_datap->db_type) {
 			case M_PROTO:
 			case M_PCPROTO:
-				printf("ne2k: M_PROTO or PC_PROTO received\n");
+				ret = process_proto(q, blk);
 				break;
 			case M_IOCTL:
 				printf("ne2k: M_IOCTL received\n");
